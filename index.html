@@ -248,9 +248,18 @@
     .screen{position:fixed;inset:0;width:auto;height:auto}
     html,body{overscroll-behavior:none;touch-action:manipulation}
   }
+
+  /* ---------- переход на экран заказа ---------- */
+  .page-fade{
+    position:fixed;inset:0;background:#fff;z-index:100;
+    opacity:0;pointer-events:none;transition:opacity .28s ease;
+  }
+  .page-fade.show{opacity:1;pointer-events:auto}
 </style>
 </head>
 <body>
+
+<div class="page-fade" id="pageFade"></div>
 
 <div class="screen" id="screen">
 
@@ -336,8 +345,14 @@
 
   btn.addEventListener('click', function () {
     if (btn.disabled) return;
-    /* здесь будет отправка на сервер */
-    alert('Номер принят: +7 ' + input.value);
+    /* переход на экран заказа */
+    var fade = document.getElementById('pageFade');
+    if (fade){
+      fade.classList.add('show');
+      setTimeout(function(){ window.location.href = 'order.html'; }, 280);
+    } else {
+      window.location.href = 'order.html';
+    }
   });
 
   policy.addEventListener('click', function (e) { e.preventDefault(); });
