@@ -242,6 +242,12 @@
     background:var(--btn-on);color:#fff;font-family:inherit;
     font-size:16px;font-weight:500;cursor:pointer;
   }
+
+  /* ---------- мобильный режим: экран прибит к окну ---------- */
+  @media (max-width:699px){
+    .screen{position:fixed;inset:0;width:auto;height:auto}
+    html,body{overscroll-behavior:none;touch-action:manipulation}
+  }
 </style>
 </head>
 <body>
@@ -352,23 +358,45 @@
     root.style.setProperty('--kb', px + 'px');
   }
 
-  var screenEl = document.getElementById('screen');
-
   /* Считаем не «высоту клавиатуры», а реальное перекрытие:
      насколько низ экрана уходит под клавиатуру.
      Так кнопка не поднимется дважды, если браузер сам ужал страницу. */
+  var screenEl = document.getElementById('screen');
+  var fieldEl  = document.querySelector('.field');
+  var ctaEl    = document.querySelector('.cta');
+
+  function num(v){ var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
   function measure(){
-    if (isDesktop() || !vv){ setKb(0); return; }
+    if (!screenEl || !ctaEl || !btn) return;
 
-    var r = screenEl.getBoundingClientRect();
-    var kbTop = vv.offsetTop + vv.height;      /* верх клавиатуры в координатах страницы */
-    var btnBottom = parseFloat(getComputedStyle(root).getPropertyValue('--btn-bottom')) || 28;
+    var baseTop = ctaEl.offsetTop;      /* позиция кнопки без клавиатуры, внутри .screen */
+    var ctaH    = ctaEl.offsetHeight || 56;
+    var top     = baseTop;
 
-    /* низ кнопки по умолчанию: r.bottom - btnBottom.
-       Нужно поднять так, чтобы до клавиатуры остался зазор 12px. */
-    var lift = (r.bottom - kbTop) - btnBottom + 12;
+    if (vv && !isDesktop()){
+      var r     = screenEl.getBoundingClientRect();
+      var kbTop = (vv.offsetTop || 0) + vv.height - r.top;   /* верх клавиатуры внутри .screen */
 
-    setKb(lift > 24 ? Math.round(lift) : 0);
+      /* клавиатура реально перекрывает низ экрана? */
+      if (kbTop < r.height - 40){
+        top = kbTop - 12 - ctaH;                            /* 12px зазора над клавиатурой */
+      }
+
+      /* страховка: кнопка не залезает на поле ввода */
+      if (fieldEl){
+        var fieldBottom = fieldEl.getBoundingClientRect().bottom - r.top;
+        var safeTop = fieldBottom + 24;
+        if (top < safeTop && baseTop > safeTop) top = safeTop;
+      }
+
+      /* не выше верха экрана */
+      if (top < 8) top = 8;
+    }
+
+    if (top > baseTop) top = baseTop;    /* ниже обычного места не опускаем */
+
+    setKb(Math.round(baseTop - top));
   }
 
   function syncKeyboard(){
@@ -379,21 +407,21 @@
   function openState(){
     body.classList.remove('kb-just-closed');
     body.classList.add('kb-open');
-    /* два прохода: iOS отдаёт финальную высоту не сразу */
     syncKeyboard();
-    setTimeout(syncKeyboard, 60);
-    setTimeout(syncKeyboard, 180);
-    setTimeout(syncKeyboard, 340);
+    setTimeout(syncKeyboard, 40);
+    setTimeout(syncKeyboard, 120);
+    setTimeout(syncKeyboard, 260);
+    setTimeout(syncKeyboard, 420);
   }
 
   function closeState(){
     if (!body.classList.contains('kb-open')) return;
     body.classList.remove('kb-open');
     body.classList.add('kb-just-closed');
-    setTimeout(function(){ body.classList.remove('kb-just-closed'); }, 400);
+    setTimeout(function(){ body.classList.remove('kb-just-closed'); }, 420);
     syncKeyboard();
     setTimeout(syncKeyboard, 120);
-    setTimeout(syncKeyboard, 300);
+    setTimeout(syncKeyboard, 260);
   }
 
   input.addEventListener('focus', openState);
@@ -403,15 +431,30 @@
     vv.addEventListener('resize', syncKeyboard);
     vv.addEventListener('scroll', syncKeyboard);
   }
+  window.addEventListener('resize', syncKeyboard);
   window.addEventListener('orientationchange', function(){
-    setTimeout(syncKeyboard, 260);
+    setTimeout(syncKeyboard, 240);
+    setTimeout(syncKeyboard, 480);
   });
 
-  /* не даём Safari прокручивать страницу под клавиатуру */
+  /* держим страницу на месте: Safari любит прокрутить её под клавиатуру */
+  var lastScroll = 0;
+  function lockScroll(){
+    if (window.pageYOffset !== 0 || document.documentElement.scrollTop !== 0){
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
+  }
+  window.addEventListener('scroll', lockScroll, { passive: true });
   document.addEventListener('focusin', function(){
-    window.scrollTo(0, 0);
-    setTimeout(function(){ window.scrollTo(0, 0); }, 120);
+    lockScroll();
+    setTimeout(lockScroll, 80);
+    setTimeout(lockScroll, 240);
   });
+
+  /* пересчёт после смены шрифтов/поворота */
+  document.addEventListener('DOMContentLoaded', syncKeyboard);
 
   syncKeyboard();
   refresh();
