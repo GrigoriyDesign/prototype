@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -156,8 +156,23 @@
   /* ---------- кнопка ---------- */
   .cta{
     position:absolute;bottom:var(--btn-bottom);left:var(--pad-x);right:var(--pad-x);
-    transform:translateY(calc(-1 * var(--kb)));
-    transition:transform .18s ease-out;
+    transform:translate3d(0, calc(-1 * var(--kb)), 0);
+    transition:transform .32s cubic-bezier(.32,.72,0,1);
+    will-change:transform;
+    z-index:5;
+  }
+  /* пока клавиатура открыта — подъём чуть быстрее, чтобы не отставать */
+  body.kb-open .cta{
+    transition-duration:.26s;
+    transition-timing-function:cubic-bezier(.22,1,.36,1);
+  }
+  /* сразу после закрытия — мягкий возврат */
+  body.kb-just-closed .cta{
+    transition-duration:.34s;
+    transition-timing-function:cubic-bezier(.32,.72,0,1);
+  }
+  @media (prefers-reduced-motion: reduce){
+    .cta{transition:none}
   }
   button{
     display:block;width:100%;height:var(--btn-h);
@@ -198,6 +213,35 @@
   @media (display-mode: fullscreen){
     .homebar{display:none}
   }
+
+  /* ---------- подсказка "открыть как приложение" ---------- */
+  .install-backdrop{
+    position:absolute;inset:0;z-index:40;background:rgba(0,0,0,.3);
+    opacity:0;pointer-events:none;transition:opacity .22s ease;
+  }
+  .install-backdrop.show{opacity:1;pointer-events:auto}
+  .install-hint{
+    position:absolute;left:0;right:0;bottom:0;z-index:41;background:#fff;
+    border-radius:20px 20px 0 0;
+    box-shadow:0 -10px 34px rgba(0,0,0,.18);
+    padding:22px 24px calc(20px + env(safe-area-inset-bottom));
+    transform:translateY(112%);
+    transition:transform .3s cubic-bezier(.32,.72,0,1);
+    font-family:var(--font-ui);
+  }
+  .install-hint.show{transform:translateY(0)}
+  .install-icon{
+    width:52px;height:52px;border-radius:13px;background:var(--btn-on);color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;font-size:19px;letter-spacing:-.5px;margin-bottom:14px;
+  }
+  .install-title{margin:0 0 8px;font-size:20px;font-weight:700;letter-spacing:-.3px;color:var(--ink)}
+  .install-text{margin:0 0 18px;font-size:14px;line-height:20px;color:#3a3a3c}
+  .install-btn{
+    display:block;width:100%;height:50px;border:0;border-radius:10px;
+    background:var(--btn-on);color:#fff;font-family:inherit;
+    font-size:16px;font-weight:500;cursor:pointer;
+  }
 </style>
 </head>
 <body>
@@ -231,6 +275,15 @@
   </div>
 
   <div class="homebar"></div>
+
+  <!-- подсказка установки -->
+  <div class="install-backdrop" id="installBackdrop"></div>
+  <div class="install-hint" id="installHint" role="dialog" aria-label="Открыть как приложение">
+    <div class="install-icon">+7</div>
+    <h2 class="install-title">Открыть как приложение</h2>
+    <p class="install-text" id="installText"></p>
+    <button class="install-btn" id="installClose" type="button">Понятно</button>
+  </div>
 
 </div>
 
@@ -284,23 +337,128 @@
   policy.addEventListener('click', function (e) { e.preventDefault(); });
 
   /* поднимаем кнопку над нативной клавиатурой */
-  var vv = window.visualViewport;
-  function syncKeyboard() {
-    if (!vv) return;
-    if (window.innerWidth >= 700) {
-      document.documentElement.style.setProperty('--kb', '0px');
-      return;
-    }
-    var hidden = window.innerHeight - vv.height - vv.offsetTop;
-    document.documentElement.style.setProperty('--kb', (hidden > 40 ? hidden : 0) + 'px');
-  }
-  if (vv) {
-    vv.addEventListener('resize', syncKeyboard);
-    vv.addEventListener('scroll', syncKeyboard);
-    syncKeyboard();
+  /* ---------- кнопка едет над клавиатурой ---------- */
+  var vv   = window.visualViewport;
+  var root = document.documentElement;
+  var body = document.body;
+  var lastKb = -1;
+  var kTimer = null;
+
+  function isDesktop(){ return window.innerWidth >= 700; }
+
+  function setKb(px){
+    if (px === lastKb) return;
+    lastKb = px;
+    root.style.setProperty('--kb', px + 'px');
   }
 
+  var screenEl = document.getElementById('screen');
+
+  /* Считаем не «высоту клавиатуры», а реальное перекрытие:
+     насколько низ экрана уходит под клавиатуру.
+     Так кнопка не поднимется дважды, если браузер сам ужал страницу. */
+  function measure(){
+    if (isDesktop() || !vv){ setKb(0); return; }
+
+    var r = screenEl.getBoundingClientRect();
+    var kbTop = vv.offsetTop + vv.height;      /* верх клавиатуры в координатах страницы */
+    var btnBottom = parseFloat(getComputedStyle(root).getPropertyValue('--btn-bottom')) || 28;
+
+    /* низ кнопки по умолчанию: r.bottom - btnBottom.
+       Нужно поднять так, чтобы до клавиатуры остался зазор 12px. */
+    var lift = (r.bottom - kbTop) - btnBottom + 12;
+
+    setKb(lift > 24 ? Math.round(lift) : 0);
+  }
+
+  function syncKeyboard(){
+    if (kTimer) cancelAnimationFrame(kTimer);
+    kTimer = requestAnimationFrame(measure);
+  }
+
+  function openState(){
+    body.classList.remove('kb-just-closed');
+    body.classList.add('kb-open');
+    /* два прохода: iOS отдаёт финальную высоту не сразу */
+    syncKeyboard();
+    setTimeout(syncKeyboard, 60);
+    setTimeout(syncKeyboard, 180);
+    setTimeout(syncKeyboard, 340);
+  }
+
+  function closeState(){
+    if (!body.classList.contains('kb-open')) return;
+    body.classList.remove('kb-open');
+    body.classList.add('kb-just-closed');
+    setTimeout(function(){ body.classList.remove('kb-just-closed'); }, 400);
+    syncKeyboard();
+    setTimeout(syncKeyboard, 120);
+    setTimeout(syncKeyboard, 300);
+  }
+
+  input.addEventListener('focus', openState);
+  input.addEventListener('blur',  closeState);
+
+  if (vv){
+    vv.addEventListener('resize', syncKeyboard);
+    vv.addEventListener('scroll', syncKeyboard);
+  }
+  window.addEventListener('orientationchange', function(){
+    setTimeout(syncKeyboard, 260);
+  });
+
+  /* не даём Safari прокручивать страницу под клавиатуру */
+  document.addEventListener('focusin', function(){
+    window.scrollTo(0, 0);
+    setTimeout(function(){ window.scrollTo(0, 0); }, 120);
+  });
+
+  syncKeyboard();
   refresh();
+})();
+</script>
+<script>
+(function(){
+  var hint = document.getElementById('installHint');
+  if (!hint) return;
+  var back  = document.getElementById('installBackdrop');
+  var txt   = document.getElementById('installText');
+  var close = document.getElementById('installClose');
+
+  var ua = navigator.userAgent;
+  var standalone = window.navigator.standalone === true ||
+                   window.matchMedia('(display-mode: standalone)').matches ||
+                   window.matchMedia('(display-mode: fullscreen)').matches;
+  if (standalone) return;                      /* уже открыто как приложение */
+
+  var isIOS = /iPad|iPhone|iPod/.test(ua) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var isAndroid = /Android/.test(ua);
+  if (!isIOS && !isAndroid) return;            /* на десктопе не мешаем */
+
+  var inApp = /(FBAN|FBAV|Instagram|Line\/|Telegram|VKClient|OKApp)/i.test(ua);
+  if (inApp) {
+    txt.innerHTML = 'Ссылка открыта во встроенном браузере. Нажмите <b>«⋯»</b> в углу и выберите <b>«Открыть в Safari»</b> — тогда страница заработает правильно.';
+  } else if (isIOS) {
+    txt.innerHTML = 'Нажмите <b>«Поделиться»</b> — квадрат со стрелкой вверх внизу экрана. В списке прокрутите до <b>«На экран „Домой“»</b>. Запущенная с иконки страница откроется на весь экран, без адресной строки.';
+  } else {
+    txt.innerHTML = 'Нажмите <b>⋮</b> в правом верхнем углу и выберите <b>«Установить приложение»</b> или <b>«Добавить на главный экран»</b>.';
+  }
+
+  function hide(){
+    back.classList.remove('show');
+    hint.classList.remove('show');
+    try { localStorage.setItem('install_hint_off','1'); } catch(e){}
+  }
+  function show(){
+    back.classList.add('show');
+    hint.classList.add('show');
+  }
+  close.addEventListener('click', hide);
+  back.addEventListener('click', hide);
+
+  try { if (localStorage.getItem('install_hint_off') === '1') return; } catch(e){}
+  setTimeout(show, 1400);
 })();
 </script>
 </body>
