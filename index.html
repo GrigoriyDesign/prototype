@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Номер">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Введите ваш номер</title>
 <style>
   @font-face{
@@ -181,6 +186,17 @@
       box-shadow:0 30px 70px rgba(0,0,0,.55), 0 0 0 11px #2c2c2e, 0 0 0 12px #3a3a3c;
     }
     .statusbar{display:flex}
+  }
+
+  /* ---------- режим приложения с домашнего экрана ---------- */
+  @media (display-mode: standalone){
+    .homebar{display:none}
+    .cta{bottom:calc(18px + env(safe-area-inset-bottom))}
+    .screen{height:100dvh}
+  }
+  /* на всякий случай: в полноэкранном Safari прячем и там */
+  @media (display-mode: fullscreen){
+    .homebar{display:none}
   }
 </style>
 </head>
